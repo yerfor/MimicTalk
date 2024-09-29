@@ -5,12 +5,13 @@ import torch.nn.functional as F
 from .deeplabv3 import DeepLabV3
 from .simple_encoders.high_resolution_encoder import HighResoEncoder
 from .segformer import LowResolutionViT, TriplanePredictorViT
+from modules.commons.loralib.layers import MergedLoRALinear, LoRALinear, LoRAConv2d
 import copy
 from utils.commons.hparams import hparams
 
 
 class Img2PlaneModel(nn.Module):
-    def __init__(self, out_channels=96, hp=None):
+    def __init__(self, out_channels=96, hp=None, lora_args=None):
         super().__init__()
         global hparams
         self.hparams = hp if hp is not None else copy.deepcopy(hparams)
@@ -32,7 +33,7 @@ class Img2PlaneModel(nn.Module):
         self.low_reso_encoder = DeepLabV3(in_channels=in_channels)
         self.high_reso_encoder = HighResoEncoder(in_dim=in_channels)
         self.low_reso_vit = LowResolutionViT()
-        self.triplane_predictor_vit = TriplanePredictorViT(out_channels=out_channels, img2plane_backbone_scale=hparams['img2plane_backbone_scale'])
+        self.triplane_predictor_vit = TriplanePredictorViT(out_channels=out_channels, img2plane_backbone_scale=hparams['img2plane_backbone_scale'], lora_args=lora_args)
 
     def forward(self, x, cond=None, **synthesis_kwargs):
         """

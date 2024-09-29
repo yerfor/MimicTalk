@@ -56,20 +56,20 @@ webrtcvad
 torchshow
 
 # cal spk sim
-s3prl
-fire
+# s3prl
+# fire
 
 # cal LMD
-dlib
+# dlib
 
 # debug
-ipykernel
+# ipykernel
 
 # lama
-hydra-core
-pytorch_lightning
-setproctitle
+# hydra-core
+# pytorch_lightning
+# setproctitle
 
 # Gradio GUI
-httpx==0.23.3
-gradio==4.16.0
+# httpx==0.23.3
+# gradio==4.16.0

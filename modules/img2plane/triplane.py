@@ -16,12 +16,13 @@ from modules.eg3ds.volumetric_rendering.ray_sampler import RaySampler
 from modules.eg3ds.models.superresolution import SuperresolutionHybrid2X, SuperresolutionHybrid4X, SuperresolutionHybrid8X, SuperresolutionHybrid8XDC
 
 from modules.img2plane.img2plane_model import Img2PlaneModel
+# from modules.img2plane.simple_encoders.plane_postnet import PlanePostNet
 from utils.commons.hparams import hparams
 
 
 class Img2TriPlaneGenerator(torch.nn.Module):
-    def __init__(self):
-        super().__init__(hp=None)
+    def __init__(self, hp=None):
+        super().__init__()
         global hparams
         self.hparams = copy.copy(hparams) if hp is None else copy.copy(hp)
         hparams = self.hparams
@@ -120,14 +121,14 @@ class Img2TriPlaneGenerator(torch.nn.Module):
 
 
 class OSGDecoder(torch.nn.Module):
-    def __init__(self, n_features, options):
+    def __init__(self, n_features, options, lora_args=None):
         super().__init__()
         self.hidden_dim = 64
 
         self.net = torch.nn.Sequential(
-            FullyConnectedLayer(n_features, self.hidden_dim, lr_multiplier=options['decoder_lr_mul']),
+            FullyConnectedLayer(n_features, self.hidden_dim, lr_multiplier=options['decoder_lr_mul'], lora_args=lora_args),
             torch.nn.Softplus(),
-            FullyConnectedLayer(self.hidden_dim, 1 + options['decoder_output_dim'], lr_multiplier=options['decoder_lr_mul'])
+            FullyConnectedLayer(self.hidden_dim, 1 + options['decoder_output_dim'], lr_multiplier=options['decoder_lr_mul'], lora_args=lora_args)
         )
         
     def forward(self, sampled_features, ray_directions=None, **kwargs):

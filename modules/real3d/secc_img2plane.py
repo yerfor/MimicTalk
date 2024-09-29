@@ -22,13 +22,18 @@ from utils.commons.hparams import hparams
 # 换成attention吧？value用plane。
 
 class OSAvatarSECC_Img2plane(OSAvatar_Img2plane):
-    def __init__(self,  hp=None):
-        super().__init__(hp=hp)
+    def __init__(self,  hp=None, lora_args=None):
+        if lora_args is None or lora_args.get("lora_mode", 'none') == 'none':
+            lora_args = None
+        super().__init__(hp=hp, lora_args=lora_args)
         hparams = self.hparams
         # extract canonical triplane from src img
         self.cano_img2plane_backbone = self.img2plane_backbone # rename
         del self.img2plane_backbone
-        self.secc_img2plane_backbone = SegFormerSECC2PlaneBackbone(mode=hparams['secc_segformer_scale'], out_channels=3*self.triplane_hid_dim*self.triplane_depth, pncc_cond_mode=hparams['pncc_cond_mode'])
+        lora_args_secc2plane = lora_args if (lora_args and lora_args.get("lora_mode", 'none') == 'all' or 'secc2plane' in lora_args.get("lora_mode", 'none')) else None
+        if lora_args_secc2plane:
+            print("lora_args_secc2plane: ", lora_args_secc2plane)
+        self.secc_img2plane_backbone = SegFormerSECC2PlaneBackbone(mode=hparams.get('secc_segformer_scale','b0'), out_channels=3*self.triplane_hid_dim*self.triplane_depth, pncc_cond_mode=hparams['pncc_cond_mode'], lora_args=lora_args_secc2plane)
         self.lambda_pertube_blink_secc = torch.nn.Parameter(torch.tensor([0.001]), requires_grad=False)
         self.lambda_pertube_secc = torch.nn.Parameter(torch.tensor([0.001]), requires_grad=False)
 

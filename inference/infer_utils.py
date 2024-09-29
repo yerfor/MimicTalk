@@ -112,7 +112,7 @@ def extract_audio_motion_from_ref_video(video_name):
         return wav16k_name
     
     def get_f0( wav16k_name):
-        from data_gen.process_lrs3.process_audio_mel_f0 import extract_mel_from_fname,extract_f0_from_wav_and_mel
+        from data_gen.utils.process_audio.extract_mel_f0 import extract_mel_from_fname, extract_f0_from_wav_and_mel
         wav, mel = extract_mel_from_fname(wav16k_name)
         f0, f0_coarse = extract_f0_from_wav_and_mel(wav, mel)
         f0 = f0.reshape([-1,1])

@@ -22,6 +22,7 @@ from modules.eg3ds.torch_utils.ops import conv2d_resample
 from modules.eg3ds.torch_utils.ops import upfirdn2d
 from modules.eg3ds.torch_utils.ops import bias_act
 from modules.eg3ds.torch_utils.ops import fma
+from modules.commons.loralib.layers import MergedLoRALinear, LoRALinear, LoRAConv2d
 
 from utils.commons.hparams import hparams
 
@@ -33,6 +34,7 @@ def normalize_2nd_moment(x, dim=1, eps=1e-8):
 
 #----------------------------------------------------------------------------
 
+@torch.cuda.amp.autocast(enabled=False)
 @misc.profiled_function
 def modulated_conv2d(
     x,                          # Input tensor of shape [batch_size, in_channels, in_height, in_width].
@@ -95,7 +97,7 @@ def modulated_conv2d(
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class FullyConnectedLayer(torch.nn.Module):
     def __init__(self,
         in_features,                # Number of input features.
@@ -104,6 +106,7 @@ class FullyConnectedLayer(torch.nn.Module):
         activation      = 'linear', # Activation function: 'relu', 'lrelu', etc.
         lr_multiplier   = 1,        # Learning rate multiplier.
         bias_init       = 0,        # Initial value for the additive bias.
+        lora_args       = None,
     ):
         super().__init__()
         self.in_features = in_features
@@ -114,9 +117,25 @@ class FullyConnectedLayer(torch.nn.Module):
         self.bias = torch.nn.Parameter(torch.full([out_features], np.float32(bias_init))) if bias else None
         self.weight_gain = lr_multiplier / np.sqrt(in_features)
         self.bias_gain = lr_multiplier
+        self.enable_lora = False
+        if lora_args is not None:
+            self.enable_lora = True
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.lora_alpha = 1.0
+            self.lora_fan_in_fan_out = False
+            self.lora_A = nn.Parameter(self.weight.new_zeros((lora_r, in_features)))
+            self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, lora_r)))
+            self.scaling = self.lora_alpha / self.lora_r
+            self.merged = False
+            self.merge_weights = True
+            self.weight.requires_grad = False
+            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            nn.init.zeros_(self.lora_B)
 
     def forward(self, x):
         w = self.weight.to(x.dtype) * self.weight_gain
+        if self.enable_lora:
+            w = w + self.lora_B @ self.lora_A * self.scaling
         b = self.bias
         if b is not None:
             b = b.to(x.dtype)
@@ -135,7 +154,7 @@ class FullyConnectedLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class Conv2dLayer(torch.nn.Module):
     def __init__(self,
         in_channels,                    # Number of input channels.
@@ -149,6 +168,7 @@ class Conv2dLayer(torch.nn.Module):
         conv_clamp      = None,         # Clamp the output to +-X, None = disable clamping.
         channels_last   = False,        # Expect the input to have memory_format=channels_last?
         trainable       = True,         # Update the weights of this layer during training?
+        lora_args       = None,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -176,8 +196,29 @@ class Conv2dLayer(torch.nn.Module):
             else:
                 self.bias = None
 
+        self.enable_lora = False
+        if lora_args is not None and trainable:
+            self.enable_lora = True
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.lora_alpha = 1.0
+            self.lora_fan_in_fan_out = False
+            self.lora_A = nn.Parameter(
+                self.weight.new_zeros((lora_r * kernel_size, in_channels * kernel_size))
+            )
+            self.lora_B = nn.Parameter(
+                self.weight.new_zeros((out_channels// 1 *kernel_size, lora_r*kernel_size))
+            )
+            self.scaling = self.lora_alpha / self.lora_r
+            self.merged = False
+            self.merge_weights = True
+            self.weight.requires_grad = False
+            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            nn.init.zeros_(self.lora_B)
+
     def forward(self, x, gain=1):
         w = self.weight * self.weight_gain
+        if self.enable_lora:
+            w = w + (self.lora_B @ self.lora_A).view(self.weight.shape) * self.scaling
 
         b = self.bias.to(x.dtype) if self.bias is not None else None
         flip_weight = (self.up == 1) # slightly faster
@@ -195,7 +236,7 @@ class Conv2dLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class MappingNetwork(torch.nn.Module):
     def __init__(self,
         z_dim,                      # Input latent (Z) dimensionality, 0 = no latent.
@@ -209,6 +250,7 @@ class MappingNetwork(torch.nn.Module):
         last_activation = None, # add by panohead, define the last activation
         lr_multiplier   = 0.01,     # Learning rate multiplier for the mapping layers.
         w_avg_beta      = 0.998,    # Decay for tracking the moving average of W during training, None = do not track.
+        lora_args = None,
     ):
         super().__init__()
         self.z_dim = z_dim
@@ -227,14 +269,14 @@ class MappingNetwork(torch.nn.Module):
         features_list = [z_dim + embed_features] + [layer_features] * (num_layers - 1) + [w_dim]
 
         if c_dim > 0:
-            self.embed = FullyConnectedLayer(c_dim, embed_features)
+            self.embed = FullyConnectedLayer(c_dim, embed_features, lora_args=lora_args)
         for idx in range(num_layers):
             in_features = features_list[idx]
             out_features = features_list[idx + 1]
             if idx == num_layers - 1 and last_activation:
-                layer = FullyConnectedLayer(in_features, out_features, activation=last_activation, lr_multiplier=lr_multiplier)
+                layer = FullyConnectedLayer(in_features, out_features, activation=last_activation, lr_multiplier=lr_multiplier, lora_args=lora_args)
             else:
-                layer = FullyConnectedLayer(in_features, out_features, activation=activation, lr_multiplier=lr_multiplier)
+                layer = FullyConnectedLayer(in_features, out_features, activation=activation, lr_multiplier=lr_multiplier, lora_args=lora_args)
             setattr(self, f'fc{idx}', layer)
 
         if num_ws is not None and w_avg_beta is not None:
@@ -282,7 +324,7 @@ class MappingNetwork(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class SynthesisLayer(torch.nn.Module):
     def __init__(self,
         in_channels,                    # Number of input channels.
@@ -296,6 +338,7 @@ class SynthesisLayer(torch.nn.Module):
         resample_filter = [1,3,3,1],    # Low-pass filter to apply when resampling activations.
         conv_clamp      = None,         # Clamp the output of convolution layers to +-X, None = disable clamping.
         channels_last   = False,        # Use channels_last format for the weights?
+        lora_args       = None,
         **other_args
     ):
         super().__init__()
@@ -311,13 +354,32 @@ class SynthesisLayer(torch.nn.Module):
         self.padding = kernel_size // 2
         self.act_gain = bias_act.activation_funcs[activation].def_gain
 
-        self.affine = FullyConnectedLayer(w_dim, in_channels, bias_init=1)
+        self.affine = FullyConnectedLayer(w_dim, in_channels, bias_init=1, lora_args=lora_args)
         memory_format = torch.channels_last if channels_last else torch.contiguous_format
         self.weight = torch.nn.Parameter(torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format))
         if use_noise:
             self.register_buffer('noise_const', torch.randn([resolution, resolution]))
             self.noise_strength = torch.nn.Parameter(torch.zeros([]))
         self.bias = torch.nn.Parameter(torch.zeros([out_channels]))
+
+        self.enable_lora = False
+        if lora_args is not None:
+            self.enable_lora = True
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.lora_alpha = 1.0
+            self.lora_fan_in_fan_out = False
+            self.lora_A = nn.Parameter(
+                self.weight.new_zeros((lora_r * kernel_size, in_channels * kernel_size))
+            )
+            self.lora_B = nn.Parameter(
+                self.weight.new_zeros((out_channels// 1 *kernel_size, lora_r*kernel_size))
+            )
+            self.scaling = self.lora_alpha / self.lora_r
+            self.merged = False
+            self.merge_weights = True
+            self.weight.requires_grad = False
+            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            nn.init.zeros_(self.lora_B)
 
     def forward(self, x, w, noise_mode='random', fused_modconv=True, gain=1, **kwargs):
         assert noise_mode in ['random', 'const', 'none']
@@ -333,6 +395,8 @@ class SynthesisLayer(torch.nn.Module):
 
         flip_weight = (self.up == 1) # slightly faster
         weight = self.weight
+        if self.enable_lora:
+            weight = weight + (self.lora_B @ self.lora_A).view(self.weight.shape) * self.scaling
         x = modulated_conv2d(x=x, weight=weight, styles=styles, noise=noise, up=self.up,
             padding=self.padding, resample_filter=self.resample_filter, flip_weight=flip_weight, fused_modconv=fused_modconv)
 
@@ -348,9 +412,9 @@ class SynthesisLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class ToRGBLayer(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, w_dim, kernel_size=1, conv_clamp=None, channels_last=False):
+    def __init__(self, in_channels, out_channels, w_dim, kernel_size=1, conv_clamp=None, channels_last=False, lora_args=None):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -362,9 +426,28 @@ class ToRGBLayer(torch.nn.Module):
         self.bias = torch.nn.Parameter(torch.zeros([out_channels]))
         self.weight_gain = 1 / np.sqrt(in_channels * (kernel_size ** 2))
 
+        self.enable_lora = False
+        if lora_args is not None:
+            self.enable_lora = True
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.lora_alpha = 1.0
+            self.lora_fan_in_fan_out = False
+            self.lora_A = nn.Parameter(
+                self.weight.new_zeros((lora_r * kernel_size, in_channels * kernel_size))
+            )
+            self.lora_B = nn.Parameter(
+                self.weight.new_zeros((out_channels// 1 *kernel_size, lora_r*kernel_size))
+            )
+            self.scaling = self.lora_alpha / self.lora_r
+            self.merged = False
+            self.merge_weights = True
+            self.weight.requires_grad = False
+
     def forward(self, x, w, fused_modconv=True):
         styles = self.affine(w) * self.weight_gain
         weight = self.weight
+        if self.enable_lora:
+            weight = weight + (self.lora_B @ self.lora_A).view(self.weight.shape) * self.scaling
         x = modulated_conv2d(x=x, weight=weight, styles=styles, demodulate=False, fused_modconv=fused_modconv) # demodulate为False
         x = bias_act.bias_act(x, self.bias.to(x.dtype), clamp=self.conv_clamp)
         return x
@@ -373,7 +456,7 @@ class ToRGBLayer(torch.nn.Module):
         return f'in_channels={self.in_channels:d}, out_channels={self.out_channels:d}, w_dim={self.w_dim:d}'
 
 #----------------------------------------------------------------------------
-
+@torch.cuda.amp.autocast(enabled=False)
 class SynthesisBlock(torch.nn.Module):
     def __init__(self,
         in_channels,                            # Number of input channels, 0 = first block.
@@ -388,6 +471,7 @@ class SynthesisBlock(torch.nn.Module):
         use_fp16                = False,        # Use FP16 for this block?
         fp16_channels_last      = False,        # Use channels-last memory format with FP16?
         fused_modconv_default   = True,         # Default value of fused_modconv. 'inference_only' = True for inference, False for training.
+        lora_args               = None,
         **layer_kwargs,                         # Arguments for SynthesisLayer.
     ):
         assert architecture in ['orig', 'skip', 'resnet']
@@ -410,21 +494,21 @@ class SynthesisBlock(torch.nn.Module):
 
         if in_channels != 0:
             self.conv0 = SynthesisLayer(in_channels, out_channels, w_dim=w_dim, resolution=resolution, up=2,
-                resample_filter=resample_filter, conv_clamp=conv_clamp, channels_last=self.channels_last, **layer_kwargs)
+                resample_filter=resample_filter, conv_clamp=conv_clamp, channels_last=self.channels_last, lora_args=lora_args, **layer_kwargs)
             self.num_conv += 1
 
         self.conv1 = SynthesisLayer(out_channels, out_channels, w_dim=w_dim, resolution=resolution,
-            conv_clamp=conv_clamp, channels_last=self.channels_last, **layer_kwargs)
+            conv_clamp=conv_clamp, channels_last=self.channels_last, lora_args=lora_args, **layer_kwargs)
         self.num_conv += 1
 
         if is_last or architecture == 'skip':
             self.torgb = ToRGBLayer(out_channels, img_channels, w_dim=w_dim,
-                conv_clamp=conv_clamp, channels_last=self.channels_last)
+                conv_clamp=conv_clamp, channels_last=self.channels_last, lora_args=lora_args)
             self.num_torgb += 1
 
         if in_channels != 0 and architecture == 'resnet':
             self.skip = Conv2dLayer(in_channels, out_channels, kernel_size=1, bias=False, up=2,
-                resample_filter=resample_filter, channels_last=self.channels_last)
+                resample_filter=resample_filter, channels_last=self.channels_last, lora_args=lora_args)
 
     def forward(self, x, img, ws, force_fp32=False, fused_modconv=None, update_emas=False, **layer_kwargs):
         _ = update_emas # unused
@@ -477,7 +561,7 @@ class SynthesisBlock(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class SynthesisNetwork(torch.nn.Module):
     def __init__(self,
         w_dim,                      # Intermediate latent (W) dimensionality.
@@ -486,6 +570,7 @@ class SynthesisNetwork(torch.nn.Module):
         channel_base    = 32768,    # Overall multiplier for the number of channels.
         channel_max     = 512,      # Maximum number of channels in any layer.
         num_fp16_res    = 4,        # Use FP16 for the N highest resolutions.
+        lora_args       = None,
         **block_kwargs,             # Arguments for SynthesisBlock.
     ):
         assert img_resolution >= 4 and img_resolution & (img_resolution - 1) == 0
@@ -506,7 +591,7 @@ class SynthesisNetwork(torch.nn.Module):
             use_fp16 = (res >= fp16_resolution)
             is_last = (res == self.img_resolution)
             block = SynthesisBlock(in_channels, out_channels, w_dim=w_dim, resolution=res,
-                img_channels=img_channels, is_last=is_last, use_fp16=use_fp16, **block_kwargs)
+                img_channels=img_channels, is_last=is_last, use_fp16=use_fp16, lora_args=lora_args, **block_kwargs)
             self.num_ws += block.num_conv
             if is_last:
                 self.num_ws += block.num_torgb
@@ -537,7 +622,7 @@ class SynthesisNetwork(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class Generator(torch.nn.Module):
     def __init__(self,
         z_dim,                      # Input latent (Z) dimensionality.
@@ -546,6 +631,7 @@ class Generator(torch.nn.Module):
         img_resolution,             # Output resolution.
         img_channels,               # Number of output color channels.
         mapping_kwargs      = {},   # Arguments for MappingNetwork.
+        lora_args           = None,
         **synthesis_kwargs,         # Arguments for SynthesisNetwork.
     ):
         super().__init__()
@@ -554,12 +640,12 @@ class Generator(torch.nn.Module):
         self.w_dim = w_dim
         self.img_resolution = img_resolution
         self.img_channels = img_channels
-        self.synthesis = SynthesisNetwork(w_dim=w_dim, img_resolution=img_resolution, img_channels=img_channels, **synthesis_kwargs)
+        self.synthesis = SynthesisNetwork(w_dim=w_dim, img_resolution=img_resolution, img_channels=img_channels, lora_args=lora_args, **synthesis_kwargs)
         self.num_ws = self.synthesis.num_ws
-        self.mapping = MappingNetwork(z_dim=z_dim, c_dim=c_dim, w_dim=w_dim, num_ws=self.num_ws, **mapping_kwargs)
+        self.mapping = MappingNetwork(z_dim=z_dim, c_dim=c_dim, w_dim=w_dim, num_ws=self.num_ws, lora_args=lora_args, **mapping_kwargs)
         if hparams.get("gen_cond_mode", 'none') == 'mapping': # comes from a attemp to inject landmark condition
             self.cond_dim = 204
-            self.cond_mapping = MappingNetwork(z_dim=self.cond_dim, c_dim=0, w_dim=w_dim, num_ws=self.num_ws, **mapping_kwargs)
+            self.cond_mapping = MappingNetwork(z_dim=self.cond_dim, c_dim=0, w_dim=w_dim, num_ws=self.num_ws, lora_args=lora_args, **mapping_kwargs)
 
     def forward(self, z, c, cond=None, truncation_psi=1, truncation_cutoff=None, update_emas=False, **synthesis_kwargs):
         ws = self.mapping(z, c, truncation_psi=truncation_psi, truncation_cutoff=truncation_cutoff, update_emas=update_emas)
@@ -571,7 +657,7 @@ class Generator(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class DiscriminatorBlock(torch.nn.Module):
     def __init__(self,
         in_channels,                        # Number of input channels, 0 = first block.
@@ -689,7 +775,7 @@ class MinibatchStdLayer(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class DiscriminatorEpilogue(torch.nn.Module):
     def __init__(self,
         in_channels,                    # Number of input channels.
@@ -750,7 +836,7 @@ class DiscriminatorEpilogue(torch.nn.Module):
 
 #----------------------------------------------------------------------------
 
-
+@torch.cuda.amp.autocast(enabled=False)
 class Discriminator(torch.nn.Module):
     def __init__(self,
         c_dim,                          # Conditioning label (C) dimensionality.

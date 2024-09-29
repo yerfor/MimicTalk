@@ -5,10 +5,15 @@ from utils.commons.hparams import hparams
 
 
 class OSAvatarSECC_Img2plane_Torso(OSAvatarSECC_Img2plane):
-    def __init__(self, hp=None):
-        super().__init__(hp=hp)
+    def __init__(self, hp=None, lora_args=None):
+        if lora_args is None or lora_args.get("lora_mode", 'none') == 'none':
+            lora_args = None
+        super().__init__(hp=hp, lora_args=lora_args)
         del self.superresolution
-        self.superresolution = SuperresolutionHybrid8XDC_Warp(channels=32, img_resolution=self.img_resolution, sr_num_fp16_res=self.sr_num_fp16_res, sr_antialias=True, **self.sr_kwargs)
+        lora_args_sr = lora_args if (lora_args and lora_args.get("lora_mode", 'none') == 'all' or 'sr' in lora_args.get("lora_mode", 'none')) else None
+        if lora_args_sr:
+            print("lora_args_sr: ", lora_args_sr)
+        self.superresolution = SuperresolutionHybrid8XDC_Warp(channels=32, img_resolution=self.img_resolution, sr_num_fp16_res=self.sr_num_fp16_res, sr_antialias=True, lora_args=lora_args_sr, **self.sr_kwargs)
     
     def _forward_sr(self, rgb_image, feature_image, cond, ret, **synthesis_kwargs):
         hparams = self.hparams

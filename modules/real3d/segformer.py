@@ -16,6 +16,7 @@ from timm.models.registry import register_model
 from timm.models.vision_transformer import _cfg
 import math
 from mmcv.cnn import ConvModule
+from modules.commons.loralib.layers import MergedLoRALinear, LoRALinear, LoRAConv2d, LoRAConv3d
 
 from utils.commons.hparams import hparams
 
@@ -540,9 +541,9 @@ class SegFormerHead(nn.Module):
 # from modules.hidenerf.models.networks_stylegan2 import Conv2dLayer
 from modules.eg3ds.models.networks_stylegan2 import Conv2dLayer
 class conv(nn.Module):
-    def __init__(self, num_in_layers, num_out_layers, kernel_size, up=1, down=1):
+    def __init__(self, num_in_layers, num_out_layers, kernel_size, up=1, down=1, lora_args=None):
         super(conv, self).__init__()
-        self.conv = Conv2dLayer(num_in_layers, num_out_layers, kernel_size, activation='elu', up=up, down=down)
+        self.conv = Conv2dLayer(num_in_layers, num_out_layers, kernel_size, activation='elu', up=up, down=down, lora_args=lora_args)
         self.bn = nn.InstanceNorm2d(
             num_out_layers, track_running_stats=False, affine=True
         )
@@ -671,7 +672,7 @@ class TemporalAttNet(nn.Module):
 
 
 class SegFormerSECC2PlaneBackbone(nn.Module):
-    def __init__(self, mode='b0', out_channels=96, pncc_cond_mode='cano_src_tgt'):
+    def __init__(self, mode='b0', out_channels=96, pncc_cond_mode='cano_src_tgt', lora_args=None):
         super().__init__()
         mode2cls = {
             'b0': mit_b0,
@@ -684,19 +685,32 @@ class SegFormerSECC2PlaneBackbone(nn.Module):
         self.mode = mode
         self.pncc_cond_mode = pncc_cond_mode
         in_dim = 9 if pncc_cond_mode == 'cano_src_tgt' else 6
-        self.prenet = Conv2dLayer(in_dim, 3, 1)
+        self.prenet = Conv2dLayer(in_dim, 3, 1, lora_args=lora_args)
         self.mix_vit = mode2cls[mode]()
         self.fuse_head = SegFormerHead(mode)
-        self.to_plane_cnn = nn.Sequential(*[
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.01, inplace=True),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.01, inplace=True),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.01, inplace=True),
-            nn.UpsamplingBilinear2d(scale_factor=2.),
-            nn.Conv2d(in_channels=256, out_channels=out_channels, kernel_size=3, stride=1, padding=1),
-        ])
+        if lora_args is None:
+            self.to_plane_cnn = nn.Sequential(*[
+                nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
+                nn.LeakyReLU(negative_slope=0.01, inplace=True),
+                nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
+                nn.LeakyReLU(negative_slope=0.01, inplace=True),
+                nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
+                nn.LeakyReLU(negative_slope=0.01, inplace=True),
+                nn.UpsamplingBilinear2d(scale_factor=2.),
+                nn.Conv2d(in_channels=256, out_channels=out_channels, kernel_size=3, stride=1, padding=1),
+            ])
+        else:
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.to_plane_cnn = nn.Sequential(*[
+                LoRAConv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1, r=lora_r),
+                nn.LeakyReLU(negative_slope=0.01, inplace=True),
+                LoRAConv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1, r=lora_r),
+                nn.LeakyReLU(negative_slope=0.01, inplace=True),
+                LoRAConv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1, r=lora_r),
+                nn.LeakyReLU(negative_slope=0.01, inplace=True),
+                nn.UpsamplingBilinear2d(scale_factor=2.),
+                LoRAConv2d(in_channels=256, out_channels=out_channels, kernel_size=3, stride=1, padding=1, r=lora_r),
+            ])
         # if hparams['use_motion_smo_net']:
             # self.motion_smo_win_size = hparams['motion_smo_win_size']
             # self.smo_net = TemporalAttNet(in_dim=out_channels, seq_len=hparams['motion_smo_win_size'])

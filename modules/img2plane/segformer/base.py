@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from modules.commons.loralib.layers import MergedLoRALinear, LoRALinear, LoRAConv2d
 
 
 class DWConv(nn.Module):
@@ -21,7 +22,7 @@ class DWConv(nn.Module):
 
 
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., lora_args=None):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -30,6 +31,10 @@ class Mlp(nn.Module):
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
+        if lora_args is not None:
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.fc1 = LoRALinear(in_features, hidden_features, r=lora_r)
+            self.fc2 = LoRALinear(hidden_features, out_features, r=lora_r)
 
         self.apply(self._init_weights)
 
@@ -59,7 +64,7 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1, lora_args=None):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
 
@@ -78,6 +83,14 @@ class Attention(nn.Module):
         if sr_ratio > 1:
             self.sr = nn.Conv2d(dim, dim, kernel_size=sr_ratio, stride=sr_ratio)
             self.norm = nn.LayerNorm(dim)
+
+        if lora_args is not None:
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.q = LoRALinear(dim, dim, bias=qkv_bias, r=lora_r)
+            self.kv = MergedLoRALinear(dim, dim * 2, bias=qkv_bias, r=lora_r, enable_lora=[False, True]) # 只有q,v需要LoRA, key不需要adapt
+            self.proj = LoRALinear(dim, dim, r=lora_r)
+            if sr_ratio > 1:
+                self.sr = LoRAConv2d(dim, dim, kernel_size=sr_ratio, stride=sr_ratio, r=lora_r)
 
         self.apply(self._init_weights)
 
@@ -125,18 +138,18 @@ class Attention(nn.Module):
 class Block(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1, lora_args=None):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim,
             num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
-            attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio)
+            attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio, lora_args=lora_args)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop, lora_args=lora_args)
 
         self.apply(self._init_weights)
 
@@ -168,7 +181,7 @@ class OverlapPatchEmbed(nn.Module):
     """ Image to Patch Embedding
     """
 
-    def __init__(self, img_size=224, patch_size=3, stride=4, in_chans=3, embed_dim=768):
+    def __init__(self, img_size=224, patch_size=3, stride=4, in_chans=3, embed_dim=768, lora_args=None):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
@@ -180,6 +193,11 @@ class OverlapPatchEmbed(nn.Module):
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
                               padding=(patch_size[0] // 2, patch_size[1] // 2))
         self.norm = nn.LayerNorm(embed_dim)
+
+        if lora_args is not None:
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.proj = LoRAConv2d(in_chans, embed_dim, kernel_size=patch_size[0], stride=stride, 
+                                    padding=(patch_size[0] // 2, patch_size[1] // 2), r=lora_r)
 
         self.apply(self._init_weights)
 

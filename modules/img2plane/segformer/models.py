@@ -7,16 +7,18 @@ from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
 from .base import OverlapPatchEmbed, Block
 from utils.commons.hparams import hparams
+from modules.commons.loralib.layers import MergedLoRALinear, LoRALinear, LoRAConv2d
+
 
 class LowResolutionViT(nn.Module):
     """
     This Vit process the output of low resolution image features produced by DeepLabv3
     """
-    def __init__(self, img_size=64, in_chans=256):
+    def __init__(self, img_size=64, in_chans=256, lora_args=None):
         super().__init__()
 
         # patch_embed
-        self.patch_embed = OverlapPatchEmbed(img_size=img_size, patch_size=3, stride=2, in_chans=in_chans, embed_dim=1024)
+        self.patch_embed = OverlapPatchEmbed(img_size=img_size, patch_size=3, stride=2, in_chans=in_chans, embed_dim=1024, lora_args=lora_args)
         
         if hparams.get('img2plane_backbone_scale', 'standard') == 'small':
             self.num_blocks = 2
@@ -25,7 +27,7 @@ class LowResolutionViT(nn.Module):
         elif hparams['img2plane_backbone_scale'] == 'large':
             self.num_blocks = 10
         for i in range(1, self.num_blocks+1):
-            setattr(self, f'block{i}', Block(dim=1024, num_heads=4, mlp_ratio=2, sr_ratio=1))
+            setattr(self, f'block{i}', Block(dim=1024, num_heads=4, mlp_ratio=2, sr_ratio=1, lora_args=lora_args))
         
         self.pixel_shuffle = nn.PixelShuffle(upscale_factor=2)
         self.upsampling_bilinear1 = nn.UpsamplingBilinear2d(scale_factor=2.)
@@ -35,6 +37,11 @@ class LowResolutionViT(nn.Module):
         self.conv_after_upsample2 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1)
         self.activation_conv2 = nn.ReLU()
         self.final_conv = nn.Conv2d(in_channels=128, out_channels=96, kernel_size=3, stride=1, padding=1)
+        if lora_args is not None:
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.conv_after_upsample1 = LoRAConv2d(256, 128, kernel_size=3, stride=1, padding=1, r=lora_r)
+            self.conv_after_upsample2 = LoRAConv2d(128, 128, kernel_size=3, stride=1, padding=1, r=lora_r)
+            self.final_conv = LoRAConv2d(128, 96, kernel_size=3, stride=1, padding=1, r=lora_r)
 
         self.apply(self._init_weights)
 
@@ -93,14 +100,14 @@ class TriplanePredictorViT(nn.Module):
     This Vit process the concatenated features of LowResolutionViT and the CNN-based HighResoEncoder
     It predicts the final Tri-plane!
     """
-    def __init__(self, img_size=256, out_channels=96, img2plane_backbone_scale='standard'):
+    def __init__(self, img_size=256, out_channels=96, img2plane_backbone_scale='standard', lora_args=None):
         super().__init__()
         # the input is concated features, 96 from low_reso_vit and 96 from high_resolution encoder
         self.first_conv = nn.Conv2d(in_channels=192, out_channels=256, kernel_size=3, stride=1, padding=1)
         self.activation = nn.LeakyReLU(negative_slope=0.01)
         self.second_conv = nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, stride=1, padding=1)
 
-        self.patch_embed = OverlapPatchEmbed(img_size=img_size, patch_size=3, stride=2, in_chans=128, embed_dim=1024)
+        self.patch_embed = OverlapPatchEmbed(img_size=img_size, patch_size=3, stride=2, in_chans=128, embed_dim=1024, lora_args=lora_args)
 
         if img2plane_backbone_scale == 'small':
             self.num_blocks = 1
@@ -111,7 +118,7 @@ class TriplanePredictorViT(nn.Module):
         for i in range(1, self.num_blocks+1):
             # sr_ratio = 2 if i == 1 else 1
             sr_ratio = 2
-            setattr(self, f'block{i}', Block(dim=1024, num_heads=4, mlp_ratio=2, sr_ratio=sr_ratio))
+            setattr(self, f'block{i}', Block(dim=1024, num_heads=4, mlp_ratio=2, sr_ratio=sr_ratio, lora_args=lora_args))
         
         self.pixel_shuffle = nn.PixelShuffle(upscale_factor=2)
 
@@ -121,6 +128,15 @@ class TriplanePredictorViT(nn.Module):
         self.third_conv_after_cat = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1) 
 
         self.final_conv = nn.Conv2d(in_channels=128, out_channels=out_channels, kernel_size=3, stride=1, padding=1) 
+
+        if lora_args is not None:
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.first_conv = LoRAConv2d(192, 256, kernel_size=3, stride=1, padding=1, r=lora_r)
+            self.second_conv = LoRAConv2d(256, 128, kernel_size=3, stride=1, padding=1, r=lora_r)
+            self.first_conv_after_cat = LoRAConv2d(352, 256, kernel_size=3, stride=1, padding=1, r=lora_r)
+            self.second_conv_after_cat = LoRAConv2d(256, 128, kernel_size=3, stride=1, padding=1, r=lora_r)
+            self.third_conv_after_cat = LoRAConv2d(128, 128, kernel_size=3, stride=1, padding=1, r=lora_r)
+            self.final_conv = LoRAConv2d(128, out_channels, kernel_size=3, stride=1, padding=1, r=lora_r)
 
         self.apply(self._init_weights)
 

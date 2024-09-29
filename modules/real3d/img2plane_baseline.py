@@ -18,9 +18,11 @@ import copy
 from modules.real3d.segformer import SegFormerImg2PlaneBackbone
 from modules.img2plane.triplane import OSGDecoder
 from modules.eg3ds.models.superresolution import SuperresolutionHybrid8XDC
+# from modules.real3d.super_resolution.sr_spade import SpadeSuperresolutionHybrid8XDC
 from modules.eg3ds.volumetric_rendering.renderer import ImportanceRenderer
 from modules.eg3ds.volumetric_rendering.ray_sampler import RaySampler
 from modules.img2plane.img2plane_model import Img2PlaneModel
+from modules.commons.loralib.layers import MergedLoRALinear, LoRALinear, LoRAConv2d, LoRAConv3d
 
 from utils.commons.hparams import hparams
 import torch.nn.functional as F
@@ -34,7 +36,7 @@ class SameBlock3d(nn.Module):
     Res block, preserve spatial resolution.
     """
 
-    def __init__(self, in_features, kernel_size=3, padding=1):
+    def __init__(self, in_features, kernel_size=3, padding=1, lora_args=None):
         super(SameBlock3d, self).__init__()
         self.conv1 = nn.Conv3d(in_channels=in_features, out_channels=in_features, kernel_size=kernel_size,
                                padding=padding, padding_mode='replicate')
@@ -43,6 +45,14 @@ class SameBlock3d(nn.Module):
         self.norm1 = nn.GroupNorm(4, in_features, affine=True)
         self.norm2 = nn.GroupNorm(4, in_features, affine=True)
         self.alpha = nn.Parameter(torch.tensor([0.01]))
+        if lora_args is not None:
+            lora_r = self.lora_r = lora_args.get("lora_r", 8)
+            self.conv1 = LoRAConv3d(in_channels=in_features, out_channels=in_features, kernel_size=kernel_size,
+                               padding=padding, padding_mode='replicate', r=lora_r)
+            self.conv2 = LoRAConv3d(in_channels=in_features, out_channels=in_features, kernel_size=kernel_size,
+                               padding=padding, padding_mode='replicate', r=lora_r)
+            self.conv1.reset_parameters()
+            self.conv2.reset_parameters()
 
     def forward(self, x):
         out = self.norm1(x)
@@ -56,7 +66,7 @@ class SameBlock3d(nn.Module):
 
 
 class Plane2GridModule(nn.Module):
-    def __init__(self, triplane_depth=3, in_out_dim=96):
+    def __init__(self, triplane_depth=3, in_out_dim=96, lora_args=None):
         super().__init__()
         self.triplane_depth = triplane_depth
         self.in_out_dim = in_out_dim
@@ -64,7 +74,7 @@ class Plane2GridModule(nn.Module):
             self.num_layers_per_block = 1
         else:
             self.num_layers_per_block = 2
-        self.res_blocks_3d = nn.Sequential(*[SameBlock3d(in_out_dim//3) for _ in range(self.num_layers_per_block)])
+        self.res_blocks_3d = nn.Sequential(*[SameBlock3d(in_out_dim//3, lora_args=lora_args) for _ in range(self.num_layers_per_block)])
         
     def forward(self, x):
         x_inp = x # [1, 96*D, H, W]
@@ -78,7 +88,9 @@ class Plane2GridModule(nn.Module):
 
 
 class OSAvatar_Img2plane(torch.nn.Module):
-    def __init__(self, hp=None):
+    def __init__(self, hp=None, lora_args=None):
+        if lora_args is None or lora_args.get("lora_mode", 'none') == 'none':
+            lora_args = None
         super().__init__()
         global hparams
         self.hparams = copy.copy(hparams) if hp is None else copy.copy(hp)
@@ -92,16 +104,23 @@ class OSAvatar_Img2plane(torch.nn.Module):
         
         self.triplane_hid_dim = triplane_hid_dim = hparams.get("triplane_hid_dim", 32)
         # extract canonical triplane from src img
-        self.img2plane_backbone = Img2PlaneModel(out_channels=3*triplane_hid_dim*self.triplane_depth, hp=hparams)
+        self.img2plane_backbone = Img2PlaneModel(out_channels=3*triplane_hid_dim*self.triplane_depth, hp=hparams) # I2P模型没有必要lora
         if hparams.get("triplane_feature_type", "triplane") in ['trigrid_v2']:
             self.plane2grid_module = Plane2GridModule(triplane_depth=self.triplane_depth, in_out_dim=3*triplane_hid_dim) # add depth here
           
         # positional embedding
-        self.decoder = OSGDecoder(triplane_hid_dim, {'decoder_lr_mul': 1, 'decoder_output_dim': triplane_hid_dim})
+        lora_args_decoder = lora_args if (lora_args and lora_args.get("lora_mode", 'none') == 'all' or 'decoder' in lora_args.get("lora_mode", 'none')) else None
+        if lora_args_decoder:
+            print("lora_args_decoder: ", lora_args_decoder)
+        self.decoder = OSGDecoder(triplane_hid_dim, {'decoder_lr_mul': 1, 'decoder_output_dim': triplane_hid_dim}, lora_args=lora_args_decoder)
         # create super resolution network
         self.sr_num_fp16_res = 0
         self.sr_kwargs = {'channel_base': hparams['base_channel'], 'channel_max': hparams['max_channel'], 'fused_modconv_default': 'inference_only'}
-        self.superresolution = SuperresolutionHybrid8XDC(channels=triplane_hid_dim, img_resolution=self.img_resolution, sr_num_fp16_res=self.sr_num_fp16_res, sr_antialias=True, large_sr=hparams.get('large_sr',False), **self.sr_kwargs)
+        lora_args_sr = lora_args if (lora_args and lora_args.get("lora_mode", 'none') == 'all' or 'sr' in lora_args.get("lora_mode", 'none')) else None
+        if hparams.get("sr_type", "vanilla") == 'vanilla':
+            self.superresolution = SuperresolutionHybrid8XDC(channels=triplane_hid_dim, img_resolution=self.img_resolution, sr_num_fp16_res=self.sr_num_fp16_res, sr_antialias=True, large_sr=hparams.get('large_sr',False), lora_args=lora_args_sr, **self.sr_kwargs)
+        # elif hparams.get("sr_type", "vanilla") == 'spade':
+            # self.superresolution = SpadeSuperresolutionHybrid8XDC(channels=triplane_hid_dim, img_resolution=self.img_resolution, sr_num_fp16_res=self.sr_num_fp16_res, sr_antialias=True, large_sr=hparams.get('large_sr',False), lora_args=lora_args_sr, **self.sr_kwargs)
         # Rendering Options
         self.renderer = ImportanceRenderer(hp=hparams)
         self.ray_sampler = RaySampler()
