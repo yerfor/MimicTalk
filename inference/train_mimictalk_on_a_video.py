@@ -219,8 +219,9 @@ class LoRATrainer(nn.Module):
         else:
             lambda_reg_triplane = 0.
         for i_step in tqdm.trange(num_updates+1,desc="training lora..."):
-            milestone_steps = [100, 200, 500]
-            if i_step % 1000 == 0 or i_step in milestone_steps:
+            milestone_steps = []
+            # milestone_steps = [100, 200, 500]
+            if i_step % 2000 == 0 or i_step in milestone_steps:
                 trainer.test_loop(inp, step=i_step)
                 if i_step != 0:
                     filepath = os.path.join(inp['work_dir'], f"model_ckpt_steps_{i_step}.ckpt") 
@@ -521,7 +522,8 @@ if __name__ == '__main__':
     import argparse, glob, tqdm
     parser = argparse.ArgumentParser()
     parser.add_argument("--head_ckpt", default='') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
-    parser.add_argument("--torso_ckpt", default='checkpoints/240210_real3dportrait_orig/secc2plane_torso_orig') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
+    # parser.add_argument("--torso_ckpt", default='checkpoints/240210_real3dportrait_orig/secc2plane_torso_orig') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
+    parser.add_argument("--torso_ckpt", default='checkpoints/mimictalk_orig/os_secc2plane_torso') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
     parser.add_argument("--video_id", default='data/raw/examples/Trump_10s.mp4', help="identity source, we support (1) already processed <video_id> of GeneFace, (2) video path, (3) image path")
     parser.add_argument("--work_dir", default=None) 
     parser.add_argument("--max_updates", default=10000, type=int, help="for video, 2000 is good; for an image, 3~10 is good") 

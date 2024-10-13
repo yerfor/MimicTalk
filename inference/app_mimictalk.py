@@ -16,7 +16,7 @@ class Trainer():
         assert len(kargs) == 0
         args = [
             '', # head_ckpt
-            'checkpoints/240210_real3dportrait_orig/secc2plane_torso_orig', # torso_ckpt
+            'checkpoints/mimictalk_orig/os_secc2plane_torso/model_ckpt_steps_100000.ckpt', # torso_ckpt
             args[0], 
             '',
             10000,
@@ -100,7 +100,7 @@ class Inferer(AdaptGeneFace2Infer):
             'bg_image_name',
             'blink_mode',
             'temperature',
-            'mouth_amp',
+            'cfg_scale',
             'out_mode',
             'map_to_init_pose',
             'low_memory_usage',
@@ -152,7 +152,6 @@ class Inferer(AdaptGeneFace2Infer):
             inp['out_name'] = ''
             inp['seed'] = 42
             inp['denoising_steps'] = 20
-            inp['cfg_scale'] = 2.5
             print(f"infer inputs : {inp}")
                 
             try:
@@ -256,11 +255,11 @@ def mimictalk_demo(
                 with gr.Tabs(elem_id="driven_pose"):
                     with gr.TabItem('Upload Driving Pose'):
                         with gr.Column(variant='panel'):
-                            drv_pose_name = gr.Video(label="Driven Pose (optional for inference)", sources=sources, value=None)
+                            drv_pose_name = gr.Video(label="Driven Pose (optional for inference)", sources=sources, value="data/raw/videos/Trump_10s.mp4")
                 with gr.Tabs(elem_id="bg_image"):
                     with gr.TabItem('Upload Background Image'):
                         with gr.Row():
-                            bg_image_name = gr.Image(label="Background image (optional for inference)", sources=sources, type="filepath", value="data/raw/examples/bg.png")
+                            bg_image_name = gr.Image(label="Background image (optional for inference)", sources=sources, type="filepath", value=None)
 
                              
             with gr.Column(variant='panel'): 
@@ -271,8 +270,8 @@ def mimictalk_demo(
                             blink_mode = gr.Radio(['none', 'period'], value='period', label='blink mode', info="whether to blink periodly") #        
                             min_face_area_percent = gr.Slider(minimum=0.15, maximum=0.5, step=0.01, label="min_face_area_percent",  value=0.2, info='The minimum face area percent in the output frame, to prevent bad cases caused by a too small face.',)
                             temperature = gr.Slider(minimum=0.0, maximum=1.0, step=0.025, label="temperature",  value=0.2, info='audio to secc temperature',)
-                            mouth_amp = gr.Slider(minimum=0.0, maximum=1.0, step=0.025, label="mouth amplitude",  value=0.45, info='higher -> mouth will open wider, default to be 0.4',)
-                            out_mode = gr.Radio(['final', 'concat_debug'], value='concat_debug', label='output layout', info="final: only final output ; concat_debug: final output concated with internel features") 
+                            cfg_scale = gr.Slider(minimum=1.0, maximum=3.0, step=0.025, label="talking style cfg_scale",  value=1.5, info='higher -> encourage the generated motion more coherent to talking style',)
+                            out_mode = gr.Radio(['final', 'concat_debug'], value='final', label='output layout', info="final: only final output ; concat_debug: final output concated with internel features") 
                             low_memory_usage = gr.Checkbox(label="Low Memory Usage Mode: save memory at the expense of lower inference speed. Useful when running a low audio (minutes-long).", value=False)
                             map_to_init_pose = gr.Checkbox(label="Whether to map pose of first frame to initial pose", value=True)
                             hold_eye_opened  = gr.Checkbox(label="Whether to maintain eyes always open")
@@ -308,7 +307,7 @@ def mimictalk_demo(
                         bg_image_name,
                         blink_mode,
                         temperature,
-                        mouth_amp,
+                        cfg_scale,
                         out_mode,
                         map_to_init_pose,
                         low_memory_usage,
@@ -349,7 +348,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--a2m_ckpt", default='checkpoints/240112_icl_audio2secc_vox2_cmlr') # checkpoints/0727_audio2secc/audio2secc_withlm2d100_randomframe
     parser.add_argument("--head_ckpt", default='') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
-    parser.add_argument("--torso_ckpt", default='checkpoints_mimictalk/Trump_10s') 
+    parser.add_argument("--torso_ckpt", default='checkpoints_mimictalk/Trump_10s/model_ckpt_steps_10000.ckpt') 
     parser.add_argument("--port", type=int, default=None) 
     parser.add_argument("--server", type=str, default='127.0.0.1')
     parser.add_argument("--share", action='store_true', dest='share', help='share srever to Internet')

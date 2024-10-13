@@ -115,7 +115,7 @@ class AdaptGeneFace2Infer(GeneFace2Infer):
             sample['blink'] = torch.zeros([1, t_x, 1]).long().cuda()
             sample['audio'] = sample['hubert']
             sample['eye_amp'] = torch.ones([1, 1]).cuda() * 1.0
-            sample['mouth_amp'] = torch.ones([1, 1]).cuda() * inp['mouth_amp']
+            # sample['mouth_amp'] = torch.ones([1, 1]).cuda() * inp['mouth_amp']
         elif inp['drv_audio_name'][-4:] in ['.mp4']:
             drv_motion_coeff_dict = fit_3dmm_for_a_video(inp['drv_audio_name'], save=False)
             drv_motion_coeff_dict = convert_to_tensor(drv_motion_coeff_dict)
@@ -328,10 +328,9 @@ if __name__ == '__main__':
     parser.add_argument("--blink_mode", default='period') # none | period
     parser.add_argument("--temperature", default=0.3, type=float) # nearest | random
     parser.add_argument("--denoising_steps", default=20, type=int) # nearest | random
-    parser.add_argument("--cfg_scale", default=2.5, type=float) # nearest | random
-    parser.add_argument("--mouth_amp", default=0.25, type=float) # scale of predicted mouth, enabled in audio-driven
+    parser.add_argument("--cfg_scale", default=1.5, type=float) # nearest | random
     parser.add_argument("--out_name", default='') # nearest | random
-    parser.add_argument("--out_mode", default='final') # concat_debug | debug | final 
+    parser.add_argument("--out_mode", default='concat_debug') # concat_debug | debug | final 
     parser.add_argument("--hold_eye_opened", default='False') # concat_debug | debug | final 
     parser.add_argument("--map_to_init_pose", default='True') # concat_debug | debug | final 
     parser.add_argument("--seed", default=None, type=int) # random seed, default None to use time.time()
