@@ -5,7 +5,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import librosa
+# import librosa
 import random
 import time
 import numpy as np
@@ -39,6 +39,10 @@ class AdaptGeneFace2Infer(GeneFace2Infer):
     def __init__(self, audio2secc_dir, head_model_dir, torso_model_dir, device=None, **kwargs):
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = device
+        self.audio2secc_dir = audio2secc_dir
+        self.head_model_dir = head_model_dir
+        self.torso_model_dir = torso_model_dir
         self.audio2secc_model = self.load_audio2secc(audio2secc_dir)
         self.secc2video_model = self.load_secc2video(head_model_dir, torso_model_dir)
         self.audio2secc_model.to(device).eval()
@@ -309,7 +313,7 @@ class AdaptGeneFace2Infer(GeneFace2Infer):
             if ret != 0: # 没有成功从drv_audio_name里面提取到音频, 则直接输出无音频轨道的纯视频
                 os.system(f"mv {debug_name} {out_fname}")
         print(f"Saved at {out_fname}")
-        
+        return out_fname
 
 if __name__ == '__main__':
     import argparse, glob, tqdm

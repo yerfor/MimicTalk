@@ -21,17 +21,14 @@ def get_hubert_from_16k_speech(speech, device="cuda:0"):
     local_path = '/home/tiger/.cache/huggingface/hub/models--facebook--hubert-large-ls960-ft/snapshots/ece5fabbf034c1073acae96d5401b25be96709d8'
     if hubert_model is None:
         print("Loading the HuBERT Model...")
-        if os.path.exists(local_path):
-            hubert_model = HubertModel.from_pretrained(local_path)
-        else:
-            hubert_model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
-    hubert_model = hubert_model.to(device)
-    if wav2vec2_processor is None:
         print("Loading the Wav2Vec2 Processor...")
         if os.path.exists(local_path):
+            hubert_model = HubertModel.from_pretrained(local_path)
             wav2vec2_processor = Wav2Vec2Processor.from_pretrained(local_path)
         else:
+            hubert_model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
             wav2vec2_processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-large-ls960-ft")
+    hubert_model = hubert_model.to(device)
 
     if speech.ndim ==2:
         speech = speech[:, 0] # [T, 2] ==> [T,]

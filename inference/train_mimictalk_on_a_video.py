@@ -179,7 +179,9 @@ class LoRATrainer(nn.Module):
         }
         self.ds = ds
         return ds
+    
     def training_loop(self, inp):
+        trainer = self
         video_id = self.ds['video_id']
         lora_params = [p for k, p in self.secc2video_model.named_parameters() if 'lora_' in k]
         self.criterion_lpips = lpips.LPIPS(net='alex',lpips=True).cuda()
