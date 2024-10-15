@@ -70,6 +70,7 @@ class LoRATrainer(nn.Module):
         from modules.real3d.secc_img2plane_torso import OSAvatarSECC_Img2plane, OSAvatarSECC_Img2plane_Torso
         hp = set_hparams(f"{model_dir}/config.yaml", print_hparams=False, global_hparams=True)
         hp['htbsr_head_threshold'] = 1.0
+        self.neural_rendering_resolution = hp['neural_rendering_resolution']
         if 'torso' in hp['task_cls'].lower():
             self.torso_mode = True
             model = OSAvatarSECC_Img2plane_Torso(hp=hp, lora_args=self.lora_args)
@@ -303,25 +304,48 @@ class LoRATrainer(nn.Module):
             gen_output = self.secc2video_model.forward(img=None, camera=camera, cond=cond, ret={}, cache_backbone=False, use_cached_backbone=True)
             pred_imgs = gen_output['image']
             pred_imgs_raw = gen_output['image_raw']
-            total_loss = 0
+
+            losses = {}
+            loss_weights = {
+                'v2v_occlusion_reg_l1_loss': 0.001,
+                'v2v_occlusion_2_reg_l1_loss': 0.001,
+                'v2v_occlusion_2_weights_entropy_loss': hparams['lam_occlusion_weights_entropy'],
+                'density_weight_l2_loss': 0.01,
+                'density_weight_entropy_loss': 0.001,
+                'mse_loss': 1.,
+                'head_mse_loss': 0.2,
+                'lip_mse_loss': 1.0,
+                'lpips_loss': 0.5,
+                'head_lpips_loss': 0.1,
+                'lip_lpips_loss': 1.0,
+                'blink_reg_loss': 0.01,
+                'triplane_reg_loss': lambda_reg_triplane,
+                'secc_reg_loss': 0.01,
+            }
+
             occlusion_reg_l1 = gen_output.get("losses", {}).get('facev2v/occlusion_reg_l1', 0.)
             occlusion_2_reg_l1 = gen_output.get("losses", {}).get('facev2v/occlusion_2_reg_l1', 0.)
             occlusion_2_weights_entropy = gen_output.get("losses", {}).get('facev2v/occlusion_2_weights_entropy', 0.)
-            total_loss += occlusion_reg_l1 * 0.001 + occlusion_2_reg_l1 * 0.001 + occlusion_2_weights_entropy * hparams['lam_occlusion_weights_entropy']
+            losses['v2v_occlusion_reg_l1_loss'] = occlusion_reg_l1
+            losses['v2v_occlusion_2_reg_l1_loss'] = occlusion_2_reg_l1
+            losses['v2v_occlusion_2_weights_entropy_loss'] = occlusion_2_weights_entropy
+
             # Weights Reg loss in torso
-            # alphas = gen_output['weights_img'].clamp(1e-5, 1 - 1e-5)
-            # loss_weights_entropy = torch.mean(- alphas * torch.log2(alphas) - (1 - alphas) * torch.log2(1 - alphas))
-            # mv_head_masks = segmaps[:, [1,3,5]].sum(dim=1)
-            # mv_head_masks_raw = F.interpolate(mv_head_masks.unsqueeze(1), size=(128,128)).squeeze(1)
-            # face_mask = mv_head_masks_raw.bool().unsqueeze(1)
-            # nonface_mask = ~ face_mask
-            # loss_weights_l2_loss = (alphas[nonface_mask]-0).pow(2).mean() + (alphas[face_mask]-1).pow(2).mean()
-            # total_loss = total_loss + loss_weights_entropy * 0.001 + loss_weights_l2_loss * 0.01
-            # RGB reconstruction loss, 在raw上的额外loss会导致头部外有虚影
-            # mse_loss = (pred_imgs - tgt_imgs).abs().mean()
-            # lpips_loss = self.criterion_lpips(pred_imgs, tgt_imgs).mean() 
-            mse_loss = (pred_imgs - tgt_imgs).abs().mean() + 0.2 * (pred_imgs_raw - F.interpolate(head_imgs, size=(128,128), mode='bilinear', antialias=True)).abs().mean()
-            lpips_loss = self.criterion_lpips(pred_imgs, tgt_imgs).mean() + 0.2 * self.criterion_lpips(pred_imgs_raw, F.interpolate(head_imgs, size=(128,128), mode='bilinear', antialias=True)).mean()
+            neural_rendering_reso = self.neural_rendering_resolution
+            alphas = gen_output['weights_img'].clamp(1e-5, 1 - 1e-5)
+            loss_weights_entropy = torch.mean(- alphas * torch.log2(alphas) - (1 - alphas) * torch.log2(1 - alphas))
+            mv_head_masks = segmaps[:, [1,3,5]].sum(dim=1)
+            mv_head_masks_raw = F.interpolate(mv_head_masks.unsqueeze(1), size=(neural_rendering_reso,neural_rendering_reso)).squeeze(1)
+            face_mask = mv_head_masks_raw.bool().unsqueeze(1)
+            nonface_mask = ~ face_mask
+            loss_weights_l2_loss = (alphas[nonface_mask]-0).pow(2).mean() + (alphas[face_mask]-1).pow(2).mean()
+            losses['density_weight_l2_loss'] = loss_weights_l2_loss
+            losses['density_weight_entropy_loss'] = loss_weights_entropy
+
+            mse_loss = (pred_imgs - tgt_imgs).abs().mean()
+            head_mse_loss = (pred_imgs_raw - F.interpolate(head_imgs, size=(neural_rendering_reso,neural_rendering_reso), mode='bilinear', antialias=True)).abs().mean()
+            lpips_loss = self.criterion_lpips(pred_imgs, tgt_imgs).mean()
+            head_lpips_loss = self.criterion_lpips(pred_imgs_raw, F.interpolate(head_imgs, size=(neural_rendering_reso,neural_rendering_reso), mode='bilinear', antialias=True)).mean()
             lip_mse_loss = 0
             lip_lpips_loss = 0
             for i in range(len(drv_idx)):
@@ -332,7 +356,13 @@ class LoRATrainer(nn.Module):
                     lip_mse_loss = lip_mse_loss + (lip_pred_imgs - lip_tgt_imgs).abs().mean()
                     lip_lpips_loss = lip_lpips_loss + self.criterion_lpips(lip_pred_imgs, lip_tgt_imgs).mean()
                 except: pass 
-            total_loss = total_loss + mse_loss * 1.0 + lip_mse_loss * 0.2  + lpips_loss * inp['lambda_lpips'] + 0.2 * lip_lpips_loss * inp['lambda_lpips']
+            losses['mse_loss'] = mse_loss
+            losses['head_mse_loss'] = head_mse_loss
+            losses['lpips_loss'] = lpips_loss
+            losses['head_lpips_loss'] = head_lpips_loss
+            losses['lip_mse_loss'] = lip_mse_loss
+            losses['lip_lpips_loss'] = lip_lpips_loss   
+
             # eye blink reg loss
             if i_step % 4 == 0:
                 blink_secc_lst1 = []
@@ -366,23 +396,38 @@ class LoRATrainer(nn.Module):
             blink_secc_plane3 = self.model.cal_secc_plane(blink_cond3)
             interpolate_blink_secc_plane = (blink_secc_plane1 + blink_secc_plane3) / 2
             blink_reg_loss = torch.nn.functional.l1_loss(blink_secc_plane2, interpolate_blink_secc_plane)
-            # lambda_reg_blink = 0.001
-            lambda_reg_blink = 0.
-            total_loss = total_loss + lambda_reg_blink
-            total_loss = total_loss + lambda_reg_blink * blink_reg_loss
+            losses['blink_reg_loss'] = blink_reg_loss
 
             # Triplane Reg loss
             triplane_reg_loss = (self.learnable_triplane - init_plane).abs().mean()
-            total_loss = total_loss + triplane_reg_loss * lambda_reg_triplane
+            losses['triplane_reg_loss'] = triplane_reg_loss
+
+
+            ref_id = self.ds['id'][0:1]
+            secc_pertube_randn_scale = hparams['secc_pertube_randn_scale']
+            perturbed_id = ref_id + torch.randn_like(ref_id) * secc_pertube_randn_scale
+            drv_exp = self.ds['exps'][drv_idx]
+            perturbed_exp = drv_exp + torch.randn_like(drv_exp) * secc_pertube_randn_scale
+            zero_euler = torch.zeros([len(drv_idx), 3], device=ref_id.device, dtype=ref_id.dtype)
+            zero_trans = torch.zeros([len(drv_idx), 3], device=ref_id.device, dtype=ref_id.dtype)
+            perturbed_secc = self.secc_renderer(perturbed_id, perturbed_exp, zero_euler, zero_trans)[1]
+            secc_reg_loss = torch.nn.functional.l1_loss(drv_secc_color, perturbed_secc)
+            losses['secc_reg_loss'] = secc_reg_loss
+
+
+            total_loss = sum([loss_weights[k] * v for k, v in losses.items() if isinstance(v, torch.Tensor) and v.requires_grad])
             # Update weights
             self.optimizer.zero_grad()
             total_loss.backward()
             self.learnable_triplane.grad.data = self.learnable_triplane.grad.data * self.learnable_triplane.numel()
             self.optimizer.step()
             meter.update(total_loss.item())
-            if i_step % 100 == 0:
-                print(f"Iter {i_step+1}: {meter.avg}")
-                self.logger.add_scalar("loss", meter.avg, i_step)
+            if i_step % 10 == 0:
+                log_line = f"Iter {i_step+1}: total_loss={meter.avg} "
+                for k, v in losses.items():
+                    log_line = log_line + f" {k}={v.item()}, "
+                    self.logger.add_scalar(f"train/{k}", v.item(), i_step)
+                print(log_line)
                 meter.reset()
     @torch.no_grad()
     def test_loop(self, inp, step=''):
@@ -458,6 +503,7 @@ class LoRATrainer(nn.Module):
             video_writer.append_data(pred_img[0])
         video_writer.close()
         self.model.train()
+
     def masked_error_loss(self, img_pred, img_gt, mask, unmasked_weight=0.1, mode='l1'):
         # 对raw图像，因为deform的原因背景没法全黑，导致这部分mse过高，我们将其mask掉，只计算人脸部分
         masked_weight = 1.0
@@ -469,6 +515,7 @@ class LoRATrainer(nn.Module):
         error.clamp_(0, max(0.5, error.quantile(0.8).item())) # clamp掉较高loss的pixel，避免姿态没对齐的pixel导致的异常值占主导影响训练
         loss = error.mean()
         return loss
+    
     def dilate(self, bin_img, ksize=5, mode='max_pool'):
         """
         mode: max_pool or avg_pool
@@ -524,16 +571,16 @@ if __name__ == '__main__':
     parser.add_argument("--head_ckpt", default='') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
     # parser.add_argument("--torso_ckpt", default='checkpoints/240210_real3dportrait_orig/secc2plane_torso_orig') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
     parser.add_argument("--torso_ckpt", default='checkpoints/mimictalk_orig/os_secc2plane_torso') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
-    parser.add_argument("--video_id", default='data/raw/examples/Trump_10s.mp4', help="identity source, we support (1) already processed <video_id> of GeneFace, (2) video path, (3) image path")
+    parser.add_argument("--video_id", default='data/raw/examples/GER.mp4', help="identity source, we support (1) already processed <video_id> of GeneFace, (2) video path, (3) image path")
     parser.add_argument("--work_dir", default=None) 
     parser.add_argument("--max_updates", default=10000, type=int, help="for video, 2000 is good; for an image, 3~10 is good") 
     parser.add_argument("--test", action='store_true') 
     parser.add_argument("--batch_size", default=1, type=int, help="batch size during training, 1 needs 8GB, 2 needs 15GB") 
     parser.add_argument("--lr", default=0.001) 
     parser.add_argument("--lr_triplane", default=0.005, help="for video, 0.1; for an image, 0.001; for ablation with_triplane, 0.") 
-    parser.add_argument("--lambda_lpips", default=0.2) 
     parser.add_argument("--lora_r", default=2, type=int, help="width of lora unit") 
     parser.add_argument("--lora_mode", default='secc2plane_sr', help='for video, full; for an image, none')
+
     args = parser.parse_args()
     inp = {
             'head_ckpt': args.head_ckpt,
@@ -545,7 +592,6 @@ if __name__ == '__main__':
             'test': args.test,
             'lr': float(args.lr),
             'lr_triplane': float(args.lr_triplane),
-            'lambda_lpips': float(args.lambda_lpips),
             'lora_mode': args.lora_mode,
             'lora_r': args.lora_r,
             }

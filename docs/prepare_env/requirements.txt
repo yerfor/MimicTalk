@@ -71,8 +71,9 @@ torchshow
 # setproctitle
 
 # Gradio GUI
-httpx==0.23.3
+# httpx==0.23.3
 # gradio==4.16.0
 gradio==4.43.0
-gradio_client==0.8.1
+httpx==0.23.3
+# gradio_client==0.8.1
 fastapi==0.112.2

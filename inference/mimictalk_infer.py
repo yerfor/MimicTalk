@@ -115,7 +115,6 @@ class AdaptGeneFace2Infer(GeneFace2Infer):
             sample['blink'] = torch.zeros([1, t_x, 1]).long().cuda()
             sample['audio'] = sample['hubert']
             sample['eye_amp'] = torch.ones([1, 1]).cuda() * 1.0
-            # sample['mouth_amp'] = torch.ones([1, 1]).cuda() * inp['mouth_amp']
         elif inp['drv_audio_name'][-4:] in ['.mp4']:
             drv_motion_coeff_dict = fit_3dmm_for_a_video(inp['drv_audio_name'], save=False)
             drv_motion_coeff_dict = convert_to_tensor(drv_motion_coeff_dict)
@@ -320,11 +319,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--a2m_ckpt", default='checkpoints/240112_icl_audio2secc_vox2_cmlr') # checkpoints/0727_audio2secc/audio2secc_withlm2d100_randomframe
     parser.add_argument("--head_ckpt", default='') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
-    parser.add_argument("--torso_ckpt", default='checkpoints_mimictalk/Trump_10s') 
+    parser.add_argument("--torso_ckpt", default='checkpoints_mimictalk/German') 
     parser.add_argument("--bg_img", default='') # data/raw/val_imgs/bg3.png
-    parser.add_argument("--drv_aud", default='data/raw/examples/Obama_5s.wav')
-    parser.add_argument("--drv_pose", default='data/raw/examples/Trump_10s.mp4') # nearest | topk | random | static | vid_name
-    parser.add_argument("--drv_style", default='data/raw/examples/Trump_10s.mp4') # nearest | topk | random | static | vid_name
+    parser.add_argument("--drv_aud", default='data/raw/examples/80_vs_60_10s.wav')
+    parser.add_argument("--drv_pose", default='data/raw/examples/German_20s.mp4') # nearest | topk | random | static | vid_name
+    parser.add_argument("--drv_style", default='data/raw/examples/German_20s.mp4') # nearest | topk | random | static | vid_name
     parser.add_argument("--blink_mode", default='period') # none | period
     parser.add_argument("--temperature", default=0.3, type=float) # nearest | random
     parser.add_argument("--denoising_steps", default=20, type=int) # nearest | random
@@ -349,7 +348,6 @@ if __name__ == '__main__':
             'temperature': args.temperature,
             'denoising_steps': args.denoising_steps,
             'cfg_scale': args.cfg_scale,
-            'mouth_amp': args.mouth_amp,
             'out_name': args.out_name,
             'out_mode': args.out_mode,
             'map_to_init_pose': args.map_to_init_pose,
