@@ -323,7 +323,7 @@ if __name__ == '__main__':
     parser.add_argument("--bg_img", default='') # data/raw/val_imgs/bg3.png
     parser.add_argument("--drv_aud", default='data/raw/examples/80_vs_60_10s.wav')
     parser.add_argument("--drv_pose", default='data/raw/examples/German_20s.mp4') # nearest | topk | random | static | vid_name
-    parser.add_argument("--drv_style", default='data/raw/examples/German_20s.mp4') # nearest | topk | random | static | vid_name
+    parser.add_argument("--drv_style", default='data/raw/examples/angry.mp4') # nearest | topk | random | static | vid_name
     parser.add_argument("--blink_mode", default='period') # none | period
     parser.add_argument("--temperature", default=0.3, type=float) # nearest | random
     parser.add_argument("--denoising_steps", default=20, type=int) # nearest | random

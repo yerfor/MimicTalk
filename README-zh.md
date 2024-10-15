@@ -33,15 +33,13 @@ deep_3drecon/BFM/
 ```
 
 ### 预训练模型
-下载预训练的Real3D-Portrait：[Google Drive](https://drive.google.com/drive/folders/1MAveJf7RvJ-Opg1f5qhLdoRoC_Gc6nD9?usp=sharing) 或 [BaiduYun Disk](https://pan.baidu.com/s/1Mjmbn0UtA1Zm9owZ7zWNgQ?pwd=6x4f ) 提取码: 6x4f
-
-下载预训练的MimicTalk：[Google Drive](https://drive.google.com/drive/folders/1Kc6ueDO9HFDN3BhtJCEKNCZtyKHSktaA?usp=sharing) or [BaiduYun Disk](https://pan.baidu.com/s/1nQKyGV5JB6rJtda7qsThUg?pwd=mimi) 提取码: mimi
+下载预训练的MimicTalk相关Checkpoints：[Google Drive](https://drive.google.com/drive/folders/1Kc6ueDO9HFDN3BhtJCEKNCZtyKHSktaA?usp=sharing) or [BaiduYun Disk](https://pan.baidu.com/s/1nQKyGV5JB6rJtda7qsThUg?pwd=mimi) 提取码: mimi
   
 下载完成后，放置全部的文件到`checkpoints`与`checkpoints_mimictalk`里并解压，文件结构如下：
 ```
 checkpoints/
-├── 240210_real3dportrait_orig
-│   └── secc2plane_torso_orig
+├── mimictalk_orig
+│   └── os_secc2plane_torso
 │       ├── config.yaml
 │       └── model_ckpt_steps_100000.ckpt
 |-- 240112_icl_audio2secc_vox2_cmlr

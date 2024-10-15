@@ -34,16 +34,14 @@ deep_3drecon/BFM/
 ```
 
 ### Pre-trained Real3D-Portrait & MimicTalk
-Download Pre-trained Real3D-Portrait：[Google Drive](https://drive.google.com/drive/folders/1MAveJf7RvJ-Opg1f5qhLdoRoC_Gc6nD9?usp=sharing) or [BaiduYun Disk](https://pan.baidu.com/s/1Mjmbn0UtA1Zm9owZ7zWNgQ?pwd=6x4f ) with Password `6x4f`
-
-Download Pre-trained MimicTalk：[Google Drive](https://drive.google.com/drive/folders/1Kc6ueDO9HFDN3BhtJCEKNCZtyKHSktaA?usp=sharing) or [BaiduYun Disk](https://pan.baidu.com/s/1nQKyGV5JB6rJtda7qsThUg?pwd=mimi) with Password `mimi`
+Download Pre-trained MimicTalk Checkpoints：[Google Drive](https://drive.google.com/drive/folders/1Kc6ueDO9HFDN3BhtJCEKNCZtyKHSktaA?usp=sharing) or [BaiduYun Disk](https://pan.baidu.com/s/1nQKyGV5JB6rJtda7qsThUg?pwd=mimi) with Password `mimi`
 
   
 Put the zip files in `checkpoints` & `checkpoints_mimictalk` and unzip them, the file structure will be like this:
 ```
 checkpoints/
-├── 240210_real3dportrait_orig
-│   └── secc2plane_torso_orig
+├── mimictalk_orig
+│   └── os_secc2plane_torso
 │       ├── config.yaml
 │       └── model_ckpt_steps_100000.ckpt
 |-- 240112_icl_audio2secc_vox2_cmlr
