@@ -319,7 +319,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--a2m_ckpt", default='checkpoints/240112_icl_audio2secc_vox2_cmlr') # checkpoints/0727_audio2secc/audio2secc_withlm2d100_randomframe
     parser.add_argument("--head_ckpt", default='') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
-    parser.add_argument("--torso_ckpt", default='checkpoints_mimictalk/German') 
+    parser.add_argument("--torso_ckpt", default='checkpoints_mimictalk/German_20s') 
     parser.add_argument("--bg_img", default='') # data/raw/val_imgs/bg3.png
     parser.add_argument("--drv_aud", default='data/raw/examples/80_vs_60_10s.wav')
     parser.add_argument("--drv_pose", default='data/raw/examples/German_20s.mp4') # nearest | topk | random | static | vid_name

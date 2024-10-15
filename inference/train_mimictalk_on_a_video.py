@@ -307,20 +307,20 @@ class LoRATrainer(nn.Module):
 
             losses = {}
             loss_weights = {
-                'v2v_occlusion_reg_l1_loss': 0.001,
-                'v2v_occlusion_2_reg_l1_loss': 0.001,
-                'v2v_occlusion_2_weights_entropy_loss': hparams['lam_occlusion_weights_entropy'],
-                'density_weight_l2_loss': 0.01,
-                'density_weight_entropy_loss': 0.001,
+                'v2v_occlusion_reg_l1_loss': 0.001, # loss for face_vid2vid-based torso
+                'v2v_occlusion_2_reg_l1_loss': 0.001, # loss for face_vid2vid-based torso
+                'v2v_occlusion_2_weights_entropy_loss': hparams['lam_occlusion_weights_entropy'], # loss for face_vid2vid-based torso
+                'density_weight_l2_loss': 0.01, # supervised density
+                'density_weight_entropy_loss': 0.001, # keep the density change sharp
                 'mse_loss': 1.,
-                'head_mse_loss': 0.2,
+                'head_mse_loss': 0.2, # loss on neural rendering low-reso pred_img
                 'lip_mse_loss': 1.0,
                 'lpips_loss': 0.5,
                 'head_lpips_loss': 0.1,
-                'lip_lpips_loss': 1.0,
-                'blink_reg_loss': 0.01,
+                'lip_lpips_loss': 1.0, # make the teeth more clear
+                'blink_reg_loss': 0.003, # increase it when you find head shake while blinking; decrease it when you find the eye cannot closed.
                 'triplane_reg_loss': lambda_reg_triplane,
-                'secc_reg_loss': 0.01,
+                'secc_reg_loss': 0.01, # used to reduce flicking
             }
 
             occlusion_reg_l1 = gen_output.get("losses", {}).get('facev2v/occlusion_reg_l1', 0.)

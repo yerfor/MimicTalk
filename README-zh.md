@@ -51,9 +51,9 @@ checkpoints/
     └── mit_b0.pth
 
 checkpoints_mimictalk/
-└── Trump_10s
+└── German_20s
     ├── config.yaml
-    └── model_ckpt_steps_5000.ckpt
+    └── model_ckpt_steps_10000.ckpt
 ```
 
 ## MimicTalk训练与推理的最简命令

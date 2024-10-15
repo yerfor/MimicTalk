@@ -348,7 +348,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--a2m_ckpt", default='checkpoints/240112_icl_audio2secc_vox2_cmlr') # checkpoints/0727_audio2secc/audio2secc_withlm2d100_randomframe
     parser.add_argument("--head_ckpt", default='') # checkpoints/0729_th1kh/secc_img2plane checkpoints/0720_img2planes/secc_img2plane_two_stage
-    parser.add_argument("--torso_ckpt", default='checkpoints_mimictalk/German/model_ckpt_steps_10000.ckpt') 
+    parser.add_argument("--torso_ckpt", default='checkpoints_mimictalk/German_20s/model_ckpt_steps_10000.ckpt') 
     parser.add_argument("--port", type=int, default=None) 
     parser.add_argument("--server", type=str, default='127.0.0.1')
     parser.add_argument("--share", action='store_true', dest='share', help='share srever to Internet')
