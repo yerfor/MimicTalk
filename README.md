@@ -90,7 +90,7 @@ python inference/train_mimictalk_on_a_video.py \
 
 Some training optional parameters:
 - `--torso_ckpt` Pre-trained Real3d-Portrait checkpoints path
-- `--max_updates` The number of training updates: for video, 2000~10000 is good; for an image, 3~10 is good
+- `--max_updates` The number of training updates.
 - `--batch_size` Batch size during training: `1` needs about 8GB VRAM; `2` needs about 15GB
 - `--lr_triplane` Learning rate of triplane: for video, 0.1; for an image, 0.001
 - `--work_dir` When not assigned, the results will be stored at `checkpoints_mimictalk/`.
@@ -98,9 +98,9 @@ Some training optional parameters:
 Commandline example:
 ```bash
 python inference/train_mimictalk_on_a_video.py \
---video_id data/raw/videos/Trump_10s.mp4 \
+--video_id data/raw/videos/German_20s.mp4 \
 --max_updates 2000 \
---work_dir checkpoints_mimictalk/Trump_10s
+--work_dir checkpoints_mimictalk/German_20s
 ```
 
 ## CLI Inference 
@@ -118,7 +118,6 @@ python inference/mimictalk_infer.py \
 Some inference optional parameters：
 - `--drv_pose` provide motion pose information, default to be static poses
 - `--bg_img` provide background information, default to be image extracted from source
-- `--mouth_amp` mouth amplitude, higher value leads to wider mouth
 - `--map_to_init_pose` when set to `True`, the initial pose will be mapped to source pose, and other poses will be equally transformed
 - `--temperature` stands for the sampling temperature of audio2motion, higher for more diverse results at the expense of lower accuracy
 - `--out_name` When not assigned, the results will be stored at `infer_out/tmp/`.
@@ -128,8 +127,8 @@ Commandline example:
 ```bash
 python inference/mimictalk_infer.py \
 --drv_aud data/raw/examples/Obama_5s.wav \
---drv_pose data/raw/examples/Trump_10s.mp4 \
---drv_style data/raw/examples/Trump_10s.mp4 \
+--drv_pose data/raw/examples/German_20s.mp4 \
+--drv_style data/raw/examples/German_20s.mp4 \
 --bg_img data/raw/examples/bg.png \
 --out_name output.mp4 \
 --out_mode final

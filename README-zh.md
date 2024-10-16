@@ -91,7 +91,7 @@ python inference/train_mimictalk_on_a_video.py \
 一些可选参数注释：
 
 - `--torso_ckpt` 预训练的Real3D-Portrait模型
-- `--max_updates` 训练更新次数：对于视频输入, 2000~10000步是合适的；对于图片输入3~10步即可
+- `--max_updates` 训练更新次数
 - `--batch_size` 训练的batch size： `1` 需要约8GB显存; `2`需要约15GB显存
 - `--lr_triplane` triplane的学习率：对于视频输入,  应为0.1; 对于图片输入，应为0.001
 - `--work_dir` 未指定时，将默认存储在`checkpoints_mimictalk/`中
@@ -99,9 +99,9 @@ python inference/train_mimictalk_on_a_video.py \
 指令示例：
 ```bash
 python inference/train_mimictalk_on_a_video.py \
---video_id data/raw/videos/Trump_10s.mp4 \
+--video_id data/raw/videos/German_20s.mp4 \
 --max_updates 2000 \
---work_dir checkpoints_mimictalk/Trump_10s
+--work_dir checkpoints_mimictalk/German_20s
 ```
 
 ## 命令行推理
@@ -129,8 +129,8 @@ python inference/mimictalk_infer.py \
 ```bash
 python inference/mimictalk_infer.py \
 --drv_aud data/raw/examples/Obama_5s.wav \
---drv_pose data/raw/examples/Trump_10s.mp4 \
---drv_style data/raw/examples/Trump_10s.mp4 \
+--drv_pose data/raw/examples/German_20s.mp4 \
+--drv_style data/raw/examples/German_20s.mp4 \
 --bg_img data/raw/examples/bg.png \
 --out_name output.mp4 \
 --out_mode final
