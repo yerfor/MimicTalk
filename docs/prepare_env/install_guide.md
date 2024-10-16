@@ -18,7 +18,6 @@ pip install numpy==1.26.4
 pip install cython
 pip install -r docs/prepare_env/requirements.txt -v
 pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
-pip install cython
 pip install openmim==0.3.9
 mim install mmcv==2.1.0 # use mim to speed up installation for mmcv
 ## build pytorch3d from Github's source code. 
