@@ -14,7 +14,7 @@ conda activate mimictalk
 
 # MMCV for SegFormer network structure
 # other dependencies
-pip install numpy<1.26.4
+pip install numpy<1.26
 pip install cython
 pip install -r docs/prepare_env/requirements.txt -v
 pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
