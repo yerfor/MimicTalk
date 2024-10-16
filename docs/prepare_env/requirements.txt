@@ -1,5 +1,4 @@
 Cython
-numpy==1.26.4
 numba==0.56.4
 pandas
 transformers
